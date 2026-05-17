@@ -24,7 +24,7 @@ def get_embedding(text: str) -> list[float]:
 
 def get_chat_response(messages: list) -> str:
     response = groq_client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama-3.1-8b-instant",
         messages=messages
     )
     return response.choices[0].message.content

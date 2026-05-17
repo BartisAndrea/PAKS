@@ -99,3 +99,45 @@ def search_documents(q: str, db: Session = Depends(get_db)):
         }
         for row in results
     ]
+
+@router.post("/chat")
+async def chat(request: dict, db: Session = Depends(get_db)):
+    question = request.get("question", "")
+    if not question:
+        raise HTTPException(status_code=400, detail="Kérdés szükséges!")
+    
+    query_embedding = get_embedding(question)
+    
+    results = db.execute(
+        sql_text("""
+            SELECT dc.content, d.filename
+            FROM document_chunks dc
+            JOIN documents d ON dc.document_id = d.id
+            ORDER BY dc.embedding <=> CAST(:embedding AS vector)
+            LIMIT 3
+        """),
+        {"embedding": str(query_embedding)}
+    ).fetchall()
+    
+    context = "\n\n".join([f"[{row[1]}]: {row[0]}" for row in results])
+    
+    from app.services.embeddings import get_chat_response
+    
+    messages = [
+        {
+            "role": "system",
+            "content": "Te egy személyes tudásrendszer asszisztense vagy. Csak a megadott kontextus alapján válaszolj. Ha nem találod a választ a kontextusban, mondd meg hogy nem tudod."
+        },
+        {
+            "role": "user",
+            "content": f"Kontextus:\n{context}\n\nKérdés: {question}"
+        }
+    ]
+    
+    response = get_chat_response(messages)
+    
+    return {
+        "question": question,
+        "answer": response,
+        "sources": [row[1] for row in results]
+    }
