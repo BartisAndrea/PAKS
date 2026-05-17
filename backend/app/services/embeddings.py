@@ -28,3 +28,14 @@ def get_chat_response(messages: list) -> str:
         messages=messages
     )
     return response.choices[0].message.content
+
+def get_chat_response_stream(messages: list):
+    stream = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=messages,
+        stream=True
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
