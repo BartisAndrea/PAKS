@@ -168,3 +168,41 @@ async def chat_stream(request: dict, db: Session = Depends(get_db)):
         get_chat_response_stream(messages),
         media_type="text/plain"
     )
+
+@router.get("/documents/{document_id}")
+def get_document(document_id: str, db: Session = Depends(get_db)):
+    import uuid as uuid_module
+    doc = db.query(Document).filter(
+        Document.id == uuid_module.UUID(document_id)
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokumentum nem található!")
+    
+    return {
+        "id": str(doc.id),
+        "filename": doc.filename,
+        "content": doc.content,
+        "summary": doc.summary,
+        "tags": doc.tags,
+        "created_at": str(doc.created_at)
+    }
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: str, db: Session = Depends(get_db)):
+    import uuid as uuid_module
+    doc = db.query(Document).filter(
+        Document.id == uuid_module.UUID(document_id)
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokumentum nem található!")
+    
+    db.query(DocumentChunk).filter(
+        DocumentChunk.document_id == uuid_module.UUID(document_id)
+    ).delete()
+    
+    db.delete(doc)
+    db.commit()
+    
+    return {"message": "Dokumentum törölve!"}
