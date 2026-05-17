@@ -39,3 +39,30 @@ def get_chat_response_stream(messages: list):
         delta = chunk.choices[0].delta.content
         if delta:
             yield delta
+
+def generate_metadata(text: str) -> dict:
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a document analyzer. Respond ONLY with valid JSON, no other text."
+            },
+            {
+                "role": "user",
+                "content": f"""Analyze this document and return a JSON object with exactly these fields:
+{{
+  "title": "document title (max 10 words)",
+  "summary": "brief summary (max 50 words)",
+  "tags": ["tag1", "tag2", "tag3"]
+}}
+
+Document:
+{text[:2000]}"""
+            }
+        ]
+    )
+    
+    import json
+    raw = response.choices[0].message.content.strip()
+    return json.loads(raw)

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text as sql_text
 from app.database import get_db
 from app.models.document import Document, DocumentChunk
-from app.services.embeddings import chunk_text, get_embedding
+from app.services.embeddings import chunk_text, get_embedding, get_chat_response, get_chat_response_stream, generate_metadata
 import pypdf
 import io
 import uuid
@@ -50,13 +51,23 @@ async def upload_document(
         db.add(doc_chunk)
     
     db.commit()
-    
+
+    try:
+        metadata = generate_metadata(extracted_text)
+        document.summary = metadata.get("summary", "")
+        document.tags = ", ".join(metadata.get("tags", []))
+        db.commit()
+    except Exception:
+        pass
+
     return {
         "message": "Sikeres feltöltés!",
         "document_id": str(document.id),
         "filename": document.filename,
         "characters": len(extracted_text),
-        "chunks": len(chunks)
+        "chunks": len(chunks),
+        "summary": document.summary,
+        "tags": document.tags
     }
 
 @router.get("/documents")
@@ -121,8 +132,6 @@ async def chat(request: dict, db: Session = Depends(get_db)):
     
     context = "\n\n".join([f"[{row[1]}]: {row[0]}" for row in results])
     
-    from app.services.embeddings import get_chat_response
-    
     messages = [
         {
             "role": "system",
@@ -141,8 +150,6 @@ async def chat(request: dict, db: Session = Depends(get_db)):
         "answer": response,
         "sources": [row[1] for row in results]
     }
-
-from fastapi.responses import StreamingResponse
 
 @router.post("/chat/stream")
 async def chat_stream(request: dict, db: Session = Depends(get_db)):
@@ -164,8 +171,6 @@ async def chat_stream(request: dict, db: Session = Depends(get_db)):
     ).fetchall()
     
     context = "\n\n".join([f"[{row[1]}]: {row[0]}" for row in results])
-    
-    from app.services.embeddings import get_chat_response_stream
     
     messages = [
         {
