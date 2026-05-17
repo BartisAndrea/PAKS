@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text as sql_text
 from app.database import get_db
 from app.models.document import Document, DocumentChunk
 from app.services.embeddings import chunk_text, get_embedding
@@ -20,23 +21,23 @@ async def upload_document(
     content = await file.read()
     
     pdf_reader = pypdf.PdfReader(io.BytesIO(content))
-    text = ""
+    extracted_text = ""
     for page in pdf_reader.pages:
-        text += page.extract_text() or ""
+        extracted_text += page.extract_text() or ""
     
-    if not text.strip():
+    if not extracted_text.strip():
         raise HTTPException(status_code=400, detail="A PDF nem tartalmaz olvasható szöveget!")
     
     document = Document(
         id=uuid.uuid4(),
         filename=file.filename,
-        content=text
+        content=extracted_text
     )
     db.add(document)
     db.commit()
     db.refresh(document)
     
-    chunks = chunk_text(text)
+    chunks = chunk_text(extracted_text)
     for i, chunk in enumerate(chunks):
         embedding = get_embedding(chunk)
         doc_chunk = DocumentChunk(
@@ -54,7 +55,7 @@ async def upload_document(
         "message": "Sikeres feltöltés!",
         "document_id": str(document.id),
         "filename": document.filename,
-        "characters": len(text),
+        "characters": len(extracted_text),
         "chunks": len(chunks)
     }
 
@@ -68,4 +69,33 @@ def list_documents(db: Session = Depends(get_db)):
             "created_at": str(doc.created_at)
         }
         for doc in documents
+    ]
+
+@router.get("/search")
+def search_documents(q: str, db: Session = Depends(get_db)):
+    if not q:
+        raise HTTPException(status_code=400, detail="Keresési kifejezés szükséges!")
+    
+    query_embedding = get_embedding(q)
+    
+    results = db.execute(
+        sql_text("""
+            SELECT dc.content, dc.document_id, d.filename,
+                   1 - (dc.embedding <=> CAST(:embedding AS vector)) as similarity
+            FROM document_chunks dc
+            JOIN documents d ON dc.document_id = d.id
+            ORDER BY dc.embedding <=> CAST(:embedding AS vector)
+            LIMIT 5
+        """),
+        {"embedding": str(query_embedding)}
+    ).fetchall()
+    
+    return [
+        {
+            "content": row[0],
+            "document_id": str(row[1]),
+            "filename": row[2],
+            "similarity": float(row[3])
+        }
+        for row in results
     ]
