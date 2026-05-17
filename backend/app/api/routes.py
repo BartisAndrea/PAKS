@@ -32,42 +32,23 @@ async def upload_document(
     document = Document(
         id=uuid.uuid4(),
         filename=file.filename,
-        content=extracted_text
+        content=extracted_text,
+        summary="Feldolgozás alatt...",
+        tags=""
     )
     db.add(document)
     db.commit()
     db.refresh(document)
-    
-    chunks = chunk_text(extracted_text)
-    for i, chunk in enumerate(chunks):
-        embedding = get_embedding(chunk)
-        doc_chunk = DocumentChunk(
-            id=uuid.uuid4(),
-            document_id=document.id,
-            content=chunk,
-            embedding=embedding,
-            chunk_index=str(i)
-        )
-        db.add(doc_chunk)
-    
-    db.commit()
 
-    try:
-        metadata = generate_metadata(extracted_text)
-        document.summary = metadata.get("summary", "")
-        document.tags = ", ".join(metadata.get("tags", []))
-        db.commit()
-    except Exception:
-        pass
+    from app.services.tasks import process_document
+    process_document.delay(str(document.id), extracted_text, file.filename)
 
     return {
-        "message": "Sikeres feltöltés!",
+        "message": "Feltöltés sikeres, feldolgozás folyamatban!",
         "document_id": str(document.id),
         "filename": document.filename,
         "characters": len(extracted_text),
-        "chunks": len(chunks),
-        "summary": document.summary,
-        "tags": document.tags
+        "status": "processing"
     }
 
 @router.get("/documents")
