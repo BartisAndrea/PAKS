@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.document import Document, DocumentChunk
+from app.services.embeddings import chunk_text, get_embedding
 import pypdf
 import io
 import uuid
@@ -35,11 +36,26 @@ async def upload_document(
     db.commit()
     db.refresh(document)
     
+    chunks = chunk_text(text)
+    for i, chunk in enumerate(chunks):
+        embedding = get_embedding(chunk)
+        doc_chunk = DocumentChunk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            content=chunk,
+            embedding=embedding,
+            chunk_index=str(i)
+        )
+        db.add(doc_chunk)
+    
+    db.commit()
+    
     return {
         "message": "Sikeres feltöltés!",
         "document_id": str(document.id),
         "filename": document.filename,
-        "characters": len(text)
+        "characters": len(text),
+        "chunks": len(chunks)
     }
 
 @router.get("/documents")
